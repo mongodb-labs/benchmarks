@@ -1,4 +1,5 @@
-# mongo-sb-benchmarks
+# Sysbench benchmarks for MongoDB
+
 Collection of sysbench scripts for benchmarking mongodb
 
 ## Installation
