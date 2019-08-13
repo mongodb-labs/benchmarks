@@ -1,5 +1,7 @@
 #!/usr/bin/env sysbench
 require("common")
+local MongoClient = require("mongorover.MongoClient")
+
 
 ffi.cdef("int sleep(int seconds);")
 ffi.cdef[[
@@ -35,12 +37,12 @@ function cleanup()
 end
 
 function thread_init(thread_id)
-    coll = getCollection()
+    coll = new_getCollection()
 
     if thread_id == 0 then
         idle_conns = {}
         for i = 0, sysbench.opt.idle_connections do
-            idle_conns[i] = getCollection()
+            idle_conns[i] = new_getCollection()
         end
         -- First queries will happen when 1 second has passed
         idle_timer = os.time()
@@ -59,6 +61,19 @@ function event(thread_id)
         busy_event()
     end
 end
+
+
+-- Like getDB but creates a new connection each time
+function new_connection()
+    local client = MongoClient.new(sysbench.opt.mongo_url)
+    return client:getDatabase(sysbench.opt.db_name)
+end
+
+function new_getCollection ()
+    local db = new_connection()
+    return db:getCollection(sysbench.opt.collection_name)
+end
+
 
 function do_query(use_this_coll)
     local query = {_id = 0}
