@@ -4,6 +4,8 @@
 # This file for AMZN2 and Centos7.
 # Note that this doesn't install MongoDB server, as it is expected to run on a separate host (in my world)
 
+set -e
+
 sudo yum -y groupinstall "Development tools"
 
 # sysbench repo
@@ -37,17 +39,23 @@ cd ../..
 echo export LD_LIBRARY_PATH=/usr/local/lib64/:$LD_LIBRARY_PATH >> .bashrc
 
 
-#luarocks install --local mongorover
+OPT=""
+if [ $(whoami) != "root" ]
+then
+    OPT="$OPT --local"
+fi
+
+#luarocks install $OPT mongorover
 rm -rf mongorover || true
 git clone https://github.com/mongodb-labs/mongorover.git
 cd mongorover
-luarocks make --local mongorover*.rockspec
+luarocks make $OPT mongorover*.rockspec
 cd ..
 
-luarocks install --local https://raw.githubusercontent.com/jiyinyiyong/json-lua/master/json-lua-0.1-3.rockspec
-luarocks install --local penlight
+luarocks install $OPT https://raw.githubusercontent.com/jiyinyiyong/json-lua/master/json-lua-0.1-3.rockspec
+luarocks install $OPT penlight
 
 # I don't know what's out of sync with the mongorover path here, but this fixed it
-cd .luarocks
+cd .luarocks || true
 ln -s lib64 lib
 cd ..
