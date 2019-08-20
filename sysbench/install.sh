@@ -56,6 +56,12 @@ luarocks install $OPT https://raw.githubusercontent.com/jiyinyiyong/json-lua/mas
 luarocks install $OPT penlight
 
 # I don't know what's out of sync with the mongorover path here, but this fixed it
-cd .luarocks || true
-ln -s lib64 lib
-cd ..
+if [ $(whoami) != "root" ]
+then
+    cd .luarocks
+    ln -s lib64 lib
+    cd ..
+else
+    mkdir -p /usr/local/lib/lua/5.1/
+    ln -s /usr/lib64/lua/5.1/mongo_module.so /usr/local/lib/lua/5.1/mongo_module.so
+fi
