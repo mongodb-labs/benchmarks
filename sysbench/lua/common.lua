@@ -23,6 +23,7 @@ function getDB()
     if not static_db then
         local client = MongoClient.new(sysbench.opt.mongo_url)
         static_db = client:getDatabase(sysbench.opt.db_name)
+        ffi.C.sb_counter_inc(sysbench.tid, ffi.C.SB_CNT_RECONNECT)
     end
     return static_db
 end
@@ -47,7 +48,7 @@ end
 local file = nil
 local print_once_memory = false
 function common_report_intermediate(stat)
-    if sysbench.opt.csv_file then
+    if sysbench.opt.csv_file and not sysbench.opt.csv_file == "off" then
         if not print_once_memory then
             file = io.open(sysbench.opt.csv_file, "w")
             file:write(csv_headers .. "\n")
@@ -57,10 +58,10 @@ function common_report_intermediate(stat)
         file:write(format_csv(stat) .. "\n")
     else
         if not print_once_memory then
-            print(csv_headers .. "\n")
+            print(csv_headers)
             print_once_memory = true
         end
-        print(format_csv(stat) .. "\n")
+        print(format_csv(stat))
     end
 end
 
