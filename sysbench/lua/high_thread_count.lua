@@ -101,7 +101,7 @@ end
 local idle_connections_created = false
 local idle_conns = {}
 local next_idle_index = 1
-local idle_conn_idx = 1
+local query_idle_idx = 1
 function create_idle_connections(thread_id)
     if next_idle_index <= my_num_idle_connections then
         idle_conns[next_idle_index] = new_getCollection()
@@ -132,12 +132,12 @@ function idle_event(thread_id)
     create_idle_connections(thread_id)
 
     -- If it's time to ping the idle connections, do so, one by one. Otherwise, just act like a regular thread.
-    if idle_connections_created and idle_timer < os.time() then
-        do_query(idle_conns[idle_conn_idx])
-        idle_conn_idx = idle_conn_idx + 1
-        if idle_conn_idx >= my_num_idle_connections then
+    if idle_connections_created and idle_timer < os.time() and my_num_idle_connections > 0 then
+        do_query(idle_conns[query_idle_idx])
+        query_idle_idx = query_idle_idx + 1
+        if query_idle_idx >= my_num_idle_connections then
             -- Done pinging idle connections. Leave them alone until next interval.
-            idle_conn_idx = 1
+            query_idle_idx = 1
             idle_timer = idle_timer + sysbench.opt.idle_interval
         end
     else
