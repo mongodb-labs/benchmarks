@@ -23,7 +23,6 @@ function getDB()
     if not static_db then
         local client = MongoClient.new(sysbench.opt.mongo_url)
         static_db = client:getDatabase(sysbench.opt.db_name)
-        ffi.C.sb_counter_inc(sysbench.tid, ffi.C.SB_CNT_RECONNECT)
     end
     return static_db
 end

@@ -59,6 +59,8 @@ end
 function thread_init(thread_id)
     assert( sysbench.opt.idle_handlers <= sysbench.opt.threads, "--idle-handlers cannot be higher than --threads.")
 
+    my_coll = new_getCollection()
+
     my_idle_handlers = sysbench.opt.idle_handlers
     if my_idle_handlers == 0 then
         my_idle_handlers = sysbench.opt.threads
@@ -86,16 +88,14 @@ function event(thread_id)
 end
 
 
--- Like getDB but creates a new connection each time
-function new_connection()
-    local client = MongoClient.new(sysbench.opt.mongo_url)
-    ffi.C.sb_counter_inc(sysbench.tid, ffi.C.SB_CNT_RECONNECT)
-    return client:getDatabase(sysbench.opt.db_name)
-end
-
+-- Like getCollection() but creates a new connection each time
 function new_getCollection ()
-    local db = new_connection()
-    return db:getCollection(sysbench.opt.collection_name)
+    local client = MongoClient.new(sysbench.opt.mongo_url)
+    local db = client:getDatabase(sysbench.opt.db_name)
+    local coll = db:getCollection(sysbench.opt.collection_name)
+    do_query(coll)
+    ffi.C.sb_counter_inc(sysbench.tid, ffi.C.SB_CNT_RECONNECT)
+    return coll
 end
 
 local idle_connections_created = false
@@ -124,7 +124,7 @@ function do_query(use_this_coll)
 end
 
 function busy_event()
-    do_query(getCollection())
+    do_query(my_coll)
 end
 
 function idle_event(thread_id)
