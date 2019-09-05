@@ -77,14 +77,14 @@ end
 function thread_done(thread_id)
 end
 
-local toggle = 0
 function event(thread_id)
-    if toggle == 0 then
+    if my_num_idle_connections > 0 then
+        -- Primary role of this thread is to create idle connections
         idle_event(thread_id)
     else
+        -- This thread just generates load on a single connection and has no idle threads
         busy_event(thread_id)
     end
-    toggle = (toggle + 1) % 2
 end
 
 
@@ -132,7 +132,7 @@ function idle_event(thread_id)
     create_idle_connections(thread_id)
 
     -- If it's time to ping the idle connections, do so, one by one. Otherwise, just act like a regular thread.
-    if idle_connections_created and idle_timer < os.time() and my_num_idle_connections > 0 then
+    if idle_connections_created and idle_timer < os.time() then
         do_query(idle_conns[query_idle_idx])
         query_idle_idx = query_idle_idx + 1
         if query_idle_idx >= my_num_idle_connections then
