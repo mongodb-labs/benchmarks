@@ -37,7 +37,7 @@ void sb_counter_inc(int thread_id, sb_counter_type type);
 
 
 -- Please use the following common sysbench options:  (Can't set defaults from here.)
---       'sysbench tcmalloc_repro.lua  --threads=1600
+--       'sysbench tcmalloc_repro.lua run --threads=1600
 
 -- Options specific to this test
 sysbench.cmdline.options["parallel-prepare"] = {"Hack: Use 'tcmalloc_repro.lua run --parallel-prepare' instead of regular prepare.", false}
@@ -52,7 +52,7 @@ end
 local thread_time_keepalive = 0
 function parallel_prepare (thread_id, num_threads)
     -- A bit odd way to insert docs, because I want to insert them roughly in increasing order even with parallel threads.
-    -- As if it was an IOT workload.
+    -- As if it was an IOT workload. So can't use batched inserts and want the _id values to interleave.
     local my_first_id = thread_id + 1
     local my_last_id = sysbench.opt.num_docs - num_threads + thread_id
 
