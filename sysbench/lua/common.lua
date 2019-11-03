@@ -11,7 +11,7 @@ sysbench.cmdline.options = {
     ["collection-name"] = {"Collection name", "sbtest"},
     ["num-docs"] = {"How many documents in a collection", 1000},
     ["batch-size"] = {"batch insert size", 1000},
-    ["csv-file"] = {"File to report statistics when --report-interval is set (0 to print to stdout)", "sysbench.csv"},
+    ["csv-file"] = {"File to report statistics when --report-interval is set ('off' to print to stdout)", "sysbench.csv"},
     ["verbose"] = {"verbosity", 0}
 }
 -- Add your own options in the benchmark file like:
@@ -47,7 +47,7 @@ end
 local file = nil
 local print_once_memory = false
 function common_report_intermediate(stat)
-    if sysbench.opt.csv_file and not sysbench.opt.csv_file == "off" then
+    if sysbench.opt.csv_file and not (sysbench.opt.csv_file == "off") then
         if not print_once_memory then
             file = io.open(sysbench.opt.csv_file, "w")
             file:write(csv_headers .. "\n")
