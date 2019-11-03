@@ -13,7 +13,8 @@ curl -s https://packagecloud.io/install/repositories/akopytov/sysbench/script.rp
 
 # EPEL repo (luarocks)
 sudo yum install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
-sudo yum -y install sysbench lua lua-devel luarocks
+# Need to pin sysbench version because of https://github.com/akopytov/sysbench/issues/327
+sudo yum -y install sysbench-1.0.17-2.el7 lua lua-devel luarocks
 # For SSL (aka Atlas) to properly work, we need a never mongo c driver. Compile from source below.
 #sudo yum -y install libbson mongo-c-driver libbson-devel mongo-c-driver-devel mongo-c-driver-libs cyrus-sasl-lib libdb
 echo
@@ -24,7 +25,7 @@ sudo yum -y install cmake openssl-devel cyrus-sasl-devel
 
 curl -L -O https://github.com/Kitware/CMake/releases/download/v3.14.4/cmake-3.14.4-Linux-x86_64.tar.gz
 tar xzf cmake-3.14.4-Linux-x86_64.tar.gz
-export PATH=$HOME/cmake-3.14.4-Linux-x86_64/bin:$PATH
+export PATH=$(pwd)/cmake-3.14.4-Linux-x86_64/bin:$PATH
 
 curl -L -O https://github.com/mongodb/mongo-c-driver/releases/download/1.14.0/mongo-c-driver-1.14.0.tar.gz
 tar xzf mongo-c-driver-1.14.0.tar.gz
