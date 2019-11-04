@@ -20,7 +20,8 @@
 --   10 scanAndOrder per second
 --   Most of above 280k scanned is in wt cursor next, but an occasional spike to 2k for cursor prev can be seen.
 -- net
---   1600 connections / sec
+--   1600 connections
+--   6 new connections created per second, with peaks of 777 new connections / second.
 --   34 MB/sec physicalBytesOut. From this we can estimate an average 255 bytes per document.
 --       We don't know anything about distribution. I assume it matters, so I will generate documents of various size.
 -- wt
@@ -41,9 +42,15 @@ void sb_counter_inc(int thread_id, sb_counter_type type);
 
 -- Options specific to this test
 sysbench.cmdline.options["parallel-prepare"] = {"Hack: Use 'tcmalloc_repro.lua run --parallel-prepare' instead of regular prepare.", false}
+
 sysbench.cmdline.options["doc-size-min"] = {"Minimum document size. (60 or higher)", 60}
 sysbench.cmdline.options["doc-size-max"] = {"Maximum document size.", 1400}
 sysbench.cmdline.options["doc-size-smudge"] = {"Smudge factor: Adds a uniform variable to the otherwise pareto distributed size. Value between 0 (pareto-only) and 1 (uniform-only).", 0.05}
+
+sysbench.cmdline.options["new-conn-prob"] = {"Probability that thread will disconnect and reopen new connection.", 0.005}
+sysbench.cmdline.options["new-conn-spike-interval"] = {"Seconds between a spike where 50% of connections close and reopen.", 42}
+
+sysbench.cmdline.options["num-insert-threads"] = {"How many threads to use for the insert component.", 4}
 
 function prepare()
     parallel_prepare(0, 1)
@@ -56,7 +63,7 @@ function parallel_prepare (thread_id, num_threads)
     local my_first_id = thread_id + 1
     local my_last_id = sysbench.opt.num_docs - num_threads + thread_id
 
-    local coll = getCollection()
+    local coll = occasionally_getCollection()
     if thread_id == 0 then
         print("thread_id 0 creating indexes...")
         -- some mongorover error simply from calling db:command() now. Really would need a bit of a refresh on mongorover...
@@ -160,6 +167,7 @@ end
 
 local parallel_prepare_done = false
 
+local keepalive_time = 0
 -- A few operations happen 1 / minute, so use one designated thread and timer
 local ttl_thread_id = 0
 local ttl_last_ts = nil
@@ -167,10 +175,11 @@ local ttl_last_run = os.time()
 local spike3m_thread_id = 1
 local spike3m_last_time = os.time()
 local next_id = 1
+local new_conn_spike_time = os.time()
 -- should happen a few hundred / sec
-local insert_thread_id_min = 2
-local insert_thread_id_max = 4
-local num_insert_threads = insert_thread_id_max - insert_thread_id_min + 1
+local num_insert_threads = nil
+local insert_thread_id_min = nil
+local insert_thread_id_max = nil
 function thread_init(thread_id)
     -- prepare related variables
     parallel_prepare_done = false
@@ -181,7 +190,13 @@ function thread_init(thread_id)
     ttl_last_ts = get_ts_floor(thread_id)
     ttl_last_run = os.time()
     spike3m_last_time = os.time()
+    new_conn_spike_time = os.time()
+
+    num_insert_threads = sysbench.opt.num_insert_threads
+    insert_thread_id_min = 2
+    insert_thread_id_max = insert_thread_id_min + num_insert_threads - 1
     next_id = get_start_id(thread_id)
+    keepalive_time = os.time()
 end
 
 function thread_done(thread_id)
@@ -206,7 +221,7 @@ end
 function get_ts_floor(thread_id)
     if thread_id == ttl_thread_id then
         local ts_floor = 1
-        local coll = getCollection()
+        local coll = occasionally_getCollection()
         local sort_key = {ts = 1}
         local pipeline = { {['$sort'] = sort_key}, {['$limit'] = 1 } }
         local result=coll:aggregate(pipeline)
@@ -222,14 +237,14 @@ end
 function get_start_id(thread_id)
     if thread_id >= insert_thread_id_min and thread_id <= insert_thread_id_max then
         local start_id = 1
-        local coll = getCollection()
+        local coll = occasionally_getCollection()
         local sort_key = {_id = -1}
         local pipeline = { {['$sort'] = sort_key}, {['$limit'] = 1 } }
         local result=coll:aggregate(pipeline)
         for doc in result do
             start_id = doc['_id'] + thread_id
         end
-        print("thread_id " .. thread_id .. " _id initialized to " .. start_id)
+        print("thread_id " .. thread_id .. " (inserts) _id initialized to " .. start_id)
         return start_id
     end
 end
@@ -237,6 +252,13 @@ end
 -- functions called from event()
 
 function dispatcher(thread_id)
+    if sysbench.opt.report_interval > 0 and not (sysbench.opt.csv_file == "off") then
+        if thread_id == 0 and keepalive_time + 5*60 < os.time() then
+            print("Still working...")
+            keepalive_time = os.time()
+        end
+    end
+
     if thread_id == spike3m_thread_id and os.time() > spike3m_last_time + 51 then
         spike3m_read(thread_id)
         spike3m_last_time = os.time()
@@ -251,7 +273,7 @@ function dispatcher(thread_id)
 end
 
 function simulate_ttl(thread_id)
-    local coll = getCollection()
+    local coll = occasionally_getCollection()
     -- delete 60 sec range of the oldest records
     local filter = { ts = { ['$lte'] = ttl_last_ts + 60 } }
     print("thread_id " .. thread_id .. " doing simulated ttl deletes now...")
@@ -269,7 +291,7 @@ end
 
 -- insert a single doc
 function insert(thread_id)
-    local coll = getCollection()
+    local coll = occasionally_getCollection()
     local doc = generate_doc(next_id)
     if coll:insert_one(doc) then
         ffi.C.sb_counter_inc(sysbench.tid, ffi.C.SB_CNT_WRITE)
@@ -293,7 +315,7 @@ end
 
 -- simple find to get a small amount of docs.
 function find()
-    local coll = getCollection()
+    local coll = occasionally_getCollection()
     local now = os.time()
     local past = now - sysbench.rand.uniform(0, 60*60)
     -- There will be ~250 docs per second - more than we want. So we also match on j to limit to a handful.
@@ -312,7 +334,7 @@ end
 
 -- read a recent time interval, then order by i
 function scanAndOrder()
-    local coll = getCollection()
+    local coll = occasionally_getCollection()
     local now = os.time()
     local past = now - sysbench.rand.uniform(0, 60*60)
     local length = 4
@@ -333,7 +355,7 @@ end
 
 -- read a recent time interval, no sort
 function getMore()
-    local coll = getCollection()
+    local coll = occasionally_getCollection()
     local now = os.time()
     local past = now - sysbench.rand.uniform(0, 60*60)
     local length = sysbench.rand.uniform(0, 60)
@@ -360,7 +382,7 @@ end
 
 -- Once per minute, read 3 million documents
 function spike3m_read(thread_id)
-    local coll = getCollection()
+    local coll = occasionally_getCollection()
     local pipeline = { { ['$sort'] = {ts = -1} }, { ['$limit'] = 3*1000*1000 } }
     print("thread_id " .. thread_id .. " querying 3 million records now...")
     local result=coll:aggregate(pipeline)
@@ -375,6 +397,38 @@ function spike3m_read(thread_id)
     ffi.C.sb_counter_inc(sysbench.tid, ffi.C.SB_CNT_READ)
     print("thread_id " .. thread_id .. " finished querying 3 million records.")
 end
+
+-- MongoDB connections 
+local MongoClient = require("mongorover.MongoClient")
+local static_client = nil
+function occasionally_getCollection()
+    local token = sysbench.rand.uniform(0, 10000)/10000
+    if token < sysbench.opt.new_conn_prob then
+        if sysbench.opt.verbosity >= 4 then
+            print("thread_id " .. sysbench.tid .. " close and reopen mongo connection. (" .. token .." / " .. sysbench.opt.new_conn_prob .. ")")
+        end
+        -- mongorover doesn't offer an explicit method to destroy the connection, but this calls the object destroy method.
+        static_client = nil
+        collectgarbage()
+    -- Every --new-conn-spike-interval, disconnect+reconnect with 50% probability
+    elseif token < 0.5 and new_conn_spike_time + 42 < os.time() then
+        if sysbench.opt.verbosity >= 4 then
+            print("thread_id " .. sysbench.tid .. " close and reopen mongo connection. (" .. token .." / " .. 0.5 .. ")")
+        end
+        static_client = nil
+        collectgarbage()
+        new_conn_spike_time = os.time()
+    end
+
+    if not static_client then
+        static_client = MongoClient.new(sysbench.opt.mongo_url)
+    end
+    local db = static_client:getDatabase(sysbench.opt.db_name)
+    local collection_name = sysbench.opt.collection_name
+    return db:getCollection(collection_name)
+end
+
+
 
 
 
