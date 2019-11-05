@@ -51,6 +51,7 @@ sysbench.cmdline.options["new-conn-prob"] = {"Probability that thread will disco
 sysbench.cmdline.options["new-conn-spike-interval"] = {"Seconds between a spike where 50% of connections close and reopen.", 42}
 
 sysbench.cmdline.options["num-insert-threads"] = {"How many threads to use for the insert component.", 4}
+sysbench.cmdline.options["query-ts-range"] = {"How many hours into the past should queries query the ts field on? Other end of the spectrum is current time. The size of this range affects whether workload fits in cache or has to read from disk.", 3*24}
 
 function prepare()
     parallel_prepare(0, 1)
@@ -212,7 +213,10 @@ function event(thread_id)
         return
     end
 
-    dispatcher(thread_id)
+    -- dispatcher(thread_id)
+    if not pcall(dispatcher, thread_id) then
+        ffi.C.sb_counter_inc(sysbench.tid, ffi.C.SB_CNT_ERROR)
+    end
 end
 
 -- functions called from thread_init()
@@ -253,8 +257,8 @@ end
 
 function dispatcher(thread_id)
     if sysbench.opt.report_interval > 0 and not (sysbench.opt.csv_file == "off") then
-        if thread_id == 0 and keepalive_time + 5*60 < os.time() then
-            print("Still working...")
+        if thread_id == 0 and keepalive_time + 0.5*60 < os.time() then
+            print("It's " .. os.date("%Y-%m-%dT%H:%M:%S") .. " and I'm still working...")
             keepalive_time = os.time()
         end
     end
@@ -308,8 +312,10 @@ function read_dispatcher(thread_id)
         scanAndOrder() -- also does getMore
     elseif token < 5 then
         getMore()
-    elseif token < 90 then
+    elseif token < 50 then 
         find()
+    else
+        agg()
     end
 end
 
@@ -317,10 +323,32 @@ end
 function find()
     local coll = occasionally_getCollection()
     local now = os.time()
-    local past = now - sysbench.rand.uniform(0, 60*60)
+    local past = now - sysbench.rand.uniform(0, sysbench.opt.query_ts_range*60*60)
     -- There will be ~250 docs per second - more than we want. So we also match on j to limit to a handful.
     local j = sysbench.rand.uniform(0, 250)
     local result=coll:find({ts = {['$lte'] = past, ['$gt'] = past-1}, j = {['$lt'] = j + 4, ['$gte'] = j} })
+    if sysbench.opt.verbosity >= 5 then
+        pretty.dump(result)
+    else
+        -- just read the cursor to end
+        for singleResult in result do
+            ffi.C.sb_counter_inc(sysbench.tid, ffi.C.SB_CNT_OTHER)
+        end
+    end
+    ffi.C.sb_counter_inc(sysbench.tid, ffi.C.SB_CNT_READ)
+end
+
+-- simple agg to get a small amount of docs.
+function agg()
+    local coll = occasionally_getCollection()
+    local now = os.time()
+    local past = now - sysbench.rand.uniform(0, sysbench.opt.query_ts_range*60*60)
+    local length = 4
+    local match = {ts = {['$lte'] = past} }
+    local sort_key = {ts = -1}
+    -- local pipeline = { { ['$match'] = match}, {['$sort'] = sort_key}, {['$limit'] = length} }
+    local pipeline = { { ['$match'] = match}, {['$sort'] = sort_key}, {['$limit'] = length} }
+    local result=coll:aggregate(pipeline, {allowDiskUse=true} )
     if sysbench.opt.verbosity >= 5 then
         pretty.dump(result)
     else
@@ -336,7 +364,7 @@ end
 function scanAndOrder()
     local coll = occasionally_getCollection()
     local now = os.time()
-    local past = now - sysbench.rand.uniform(0, 60*60)
+    local past = now - sysbench.rand.uniform(0, sysbench.opt.query_ts_range*60*60)
     local length = 4
     local match = {ts = {['$lte'] = past, ['$gt'] = past-length}}
     local sort_key = {i = 1}
@@ -357,7 +385,7 @@ end
 function getMore()
     local coll = occasionally_getCollection()
     local now = os.time()
-    local past = now - sysbench.rand.uniform(0, 60*60)
+    local past = now - sysbench.rand.uniform(0, sysbench.opt.query_ts_range*60*60)
     local length = sysbench.rand.uniform(0, 60)
     local match = {ts = {['$lte'] = past, ['$gt'] = past-length}}
     local pipeline = { { ['$match'] = match} }
@@ -422,6 +450,7 @@ function occasionally_getCollection()
 
     if not static_client then
         static_client = MongoClient.new(sysbench.opt.mongo_url)
+        ffi.C.sb_counter_inc(sysbench.tid, ffi.C.SB_CNT_RECONNECT)
     end
     local db = static_client:getDatabase(sysbench.opt.db_name)
     local collection_name = sysbench.opt.collection_name
