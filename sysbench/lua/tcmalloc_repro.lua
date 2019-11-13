@@ -51,6 +51,7 @@ sysbench.cmdline.options["new-conn-prob"] = {"Probability that thread will disco
 sysbench.cmdline.options["new-conn-spike-interval"] = {"Seconds between a spike where 50% of connections close and reopen.", 42}
 
 sysbench.cmdline.options["num-insert-threads"] = {"How many threads to use for the insert component.", 4}
+sysbench.cmdline.options["num-update-threads"] = {"How many threads to use for the update component.", 100}
 sysbench.cmdline.options["query-ts-range"] = {"How many hours into the past should queries query the ts field on? Other end of the spectrum is current time. The size of this range affects whether workload fits in cache or has to read from disk.", 3*24}
 
 function prepare()
@@ -181,6 +182,9 @@ local new_conn_spike_time = os.time()
 local num_insert_threads = nil
 local insert_thread_id_min = nil
 local insert_thread_id_max = nil
+local num_update_threads = nil
+local update_thread_id_min = nil
+local update_thread_id_max = nil
 function thread_init(thread_id)
     -- prepare related variables
     parallel_prepare_done = false
@@ -198,6 +202,9 @@ function thread_init(thread_id)
     insert_thread_id_max = insert_thread_id_min + num_insert_threads - 1
     next_id = get_start_id(thread_id)
     keepalive_time = os.time()
+    num_update_threads = sysbench.opt.num_update_threads
+    update_thread_id_min = insert_thread_id_max + 1
+    update_thread_id_max = update_thread_id_min + num_update_threads - 1
 end
 
 function thread_done(thread_id)
@@ -271,6 +278,8 @@ function dispatcher(thread_id)
         ttl_last_run = os.time()
     elseif thread_id >= insert_thread_id_min and thread_id <= insert_thread_id_max then
         insert(thread_id)
+    elseif thread_id >= update_thread_id_min and thread_id <= update_thread_id_max then
+        update(thread_id)
     else
         read_dispatcher(thread_id)
     end
@@ -279,7 +288,7 @@ end
 function simulate_ttl(thread_id)
     local coll = occasionally_getCollection()
     -- delete 60 sec range of the oldest records
-    local filter = { ts = { ['$lte'] = ttl_last_ts + 60 } }
+    local filter = { ts = { ['$lte'] = ttl_last_ts } }
     print("thread_id " .. thread_id .. " doing simulated ttl deletes now...")
     result = coll:delete_many(filter)
     if result then
@@ -289,7 +298,9 @@ function simulate_ttl(thread_id)
     else
         ffi.C.sb_counter_inc(sysbench.tid, ffi.C.SB_CNT_ERROR)
     end
-    ttl_last_ts = ttl_last_ts + 60
+    -- forward the ttl timestamp with the wall clock amount of seconds since last time it ran.
+    -- note: this is 60 seconds + the duration of the above delete operation.
+    ttl_last_ts = ttl_last_ts + (os.time() - ttl_last_run)
     print("thread_id " .. thread_id .. " finished simulated ttl deletes.")
 end
 
@@ -304,6 +315,21 @@ function insert(thread_id)
     end
     next_id = next_id + num_insert_threads
 end
+
+-- update single doc
+function update()
+    local coll = occasionally_getCollection()
+    local now = os.time()
+    local past = now - sysbench.rand.uniform(0, sysbench.opt.query_ts_range*60*60)
+    local match = {ts = {['$lte'] = past } }
+    local set = {["$set"] = {j = sysbench.rand.uniform(0, 250)}}
+    if coll:update_one(match, set) then
+        ffi.C.sb_counter_inc(sysbench.tid, ffi.C.SB_CNT_WRITE)
+    else
+        ffi.C.sb_counter_inc(sysbench.tid, ffi.C.SB_CNT_ERROR)
+    end
+end
+
 
 function read_dispatcher(thread_id)
     -- randomly select read operation. See workload description on top.
