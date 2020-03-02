@@ -20,15 +20,22 @@ sysbench.cmdline.options = {
 -- Without the global, new connection created for each query
 local static_db = nil
 function getDB()
+    local name = sysbench.opt.db_name
     if not static_db then
+        if sysbench.opt.verbosity >= 4 then
+            print("getDB(" .. name .. ")")
+        end
         local client = MongoClient.new(sysbench.opt.mongo_url)
-        static_db = client:getDatabase(sysbench.opt.db_name)
+        static_db = client:getDatabase(name)
     end
     return static_db
 end
 
 function getCollection (n)
     n = tostring(n or "")
+    if sysbench.opt.verbosity >= 4 then
+        print("getCollection(" .. n .. ")")
+    end
     local db = getDB()
     local collection_name = sysbench.opt.collection_name .. n
     return db:getCollection(collection_name)
