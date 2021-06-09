@@ -59,9 +59,9 @@ luarocks install $OPT penlight
 # I don't know what's out of sync with the mongorover path here, but this fixed it
 if [ $(whoami) != "root" ]
 then
-    cd .luarocks
-    ln -s lib64 lib
-    cd ..
+    pushd ~/.luarocks
+      ln -s lib64 lib
+    popd
 else
     mkdir -p /usr/local/lib/lua/5.1/
     ln -s /usr/lib64/lua/5.1/mongo_module.so /usr/local/lib/lua/5.1/mongo_module.so
