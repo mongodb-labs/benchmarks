@@ -6,6 +6,8 @@
 
 set -e
 
+cd ~
+
 sudo yum -y groupinstall "Development tools"
 
 # sysbench repo
