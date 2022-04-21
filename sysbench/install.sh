@@ -55,7 +55,7 @@ cd mongorover
 luarocks make $OPT mongorover*.rockspec
 cd ..
 
-luarocks install $OPT https://raw.githubusercontent.com/jiyinyiyong/json-lua/master/json-lua-0.1-3.rockspec
+luarocks install $OPT https://raw.githubusercontent.com/jiyinyiyong/json-lua/master/json-lua-0.1-4.rockspec
 luarocks install $OPT penlight
 
 # I don't know what's out of sync with the mongorover path here, but this fixed it
